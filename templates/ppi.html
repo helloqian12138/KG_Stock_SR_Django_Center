@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PPI → FSI 压力测试系统</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+  <style>
+    body { background: #f8f9fa; font-family: "Microsoft YaHei", sans-serif; }
+    .card { border: none; border-radius: 16px; box-shadow: 0 6px 25px rgba(0,0,0,0.08); overflow: hidden; }
+    .btn-primary { background: #1c7ed6; border: none; font-weight: bold; }
+    .btn-primary:hover { background: #1864ab; }
+    .loading { opacity: 0.65; pointer-events: none; }
+  </style>
+</head>
+<body class="pb-5">
+
+<div class="container-fluid py-4 px-5">
+  <h2 class="text-center text-primary fw-bold mb-2">PPI → FSI 压力测试系统</h2>
+  <p class="text-center text-muted mb-4">基于已训练的 Ragformer 时序模型（saved_models/ragformer_attempt_12.pth）· 2015.01-2025.06 历史</p>
+
+  <div class="row g-4">
+    <!-- 左侧控制面板 -->
+    <div class="col-lg-3">
+      <div class="card h-100">
+        <div class="card-header bg-primary text-white text-center py-3">
+          <h5 class="mb-0"><i class="bi bi-sliders"></i> PPI 压力情景设置</h5>
+        </div>
+        <div class="card-body" id="control-panel">
+          <div class="mb-4">
+            <label class="form-label fw-bold">预设情景</label>
+            <select id="preset" class="form-select form-select-lg">
+              <option value="baseline">基准平稳</option>
+              <option value="reflation" selected>再通胀 · 大宗回升</option>
+              <option value="deflation">深度通缩压力</option>
+              <option value="stagflation">高压滞胀冲击</option>
+            </select>
+          </div>
+
+          <div class="border rounded-3 p-3 mb-4 bg-light">
+            <div class="row g-2">
+              <div class="col-12">
+                <label class="form-label small fw-bold">历史起点</label>
+                <input type="month" class="form-control" id="hist_start" value="2015-01">
+              </div>
+              <div class="col-12">
+                <label class="form-label small fw-bold">短期终点</label>
+                <input type="month" class="form-control" id="short_end" value="2025-12">
+              </div>
+              <div class="col-12">
+                <label class="form-label small fw-bold">长期终点</label>
+                <input type="month" class="form-control" id="long_end" value="2026-12">
+              </div>
+            </div>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label">PPI 同比变动（百分点）</label>
+            <input type="range" class="form-range" id="ppi_shift" min="-5" max="5" step="0.5" value="1.5">
+            <div class="text-center fw-bold text-primary fs-5"><span id="ppi_shift_val">1.5</span> ppts</div>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label">CPI 同比变动（百分点）</label>
+            <input type="range" class="form-range" id="cpi_shift" min="-2" max="2" step="0.2" value="0.3">
+            <div class="text-center fw-bold text-secondary fs-6"><span id="cpi_shift_val">0.3</span> ppts</div>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label">1年期LPR 变动（百分点）</label>
+            <input type="range" class="form-range" id="rate_delta" min="-1" max="1" step="0.1" value="-0.2">
+            <div class="text-center fw-bold text-danger fs-6"><span id="rate_delta_val">-0.2</span> ppts</div>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label">人民币贬值幅度（%）</label>
+            <input type="range" class="form-range" id="fx_depr" min="0" max="15" step="1" value="3">
+            <div class="text-center fw-bold text-success fs-5"><span id="fx_depr_val">3</span>%</div>
+          </div>
+
+          <div class="mb-4">
+            <label class="form-label">工业增加值变动（百分点）</label>
+            <input type="range" class="form-range" id="iov_shift" min="-2" max="2" step="0.2" value="0.5">
+            <div class="text-center fw-bold text-warning fs-6"><span id="iov_shift_val">0.5</span> ppts</div>
+          </div>
+
+          <button id="run-btn" class="btn btn-primary btn-lg w-100 py-3 shadow">
+            <i class="bi bi-play-fill"></i> 运行压力测试
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 右侧结果 -->
+    <div class="col-lg-9">
+      <div class="card mb-4">
+        <div class="card-header bg-white d-flex justify-content-between align-items-center">
+          <h5 class="mb-0"><i class="bi bi-graph-up"></i> FSI 路径预测</h5>
+          <div id="scenario_tag" class="text-muted small">-</div>
+        </div>
+        <div class="card-body p-3">
+          <div id="ppi_chart" style="height: 540px;"></div>
+        </div>
+      </div>
+
+      <div class="row g-3">
+        <div class="col-md-4">
+          <div class="card border-info shadow-sm text-center">
+            <div class="card-body py-4">
+              <h3 class="text-info fw-bold" id="short_fsi">-</h3>
+              <p class="mb-1">短期峰值 FSI</p>
+              <small class="text-muted" id="short_date">-</small>
+            </div>
+          </div>
+        </div>
+        <div class="col-md-4">
+          <div class="card border-danger shadow-sm text-center">
+            <div class="card-body py-4">
+              <h3 class="text-danger fw-bold" id="long_fsi">-</h3>
+              <p class="mb-1">长期峰值 FSI</p>
+              <small class="text-muted" id="long_date">-</small>
+            </div>
+          </div>
+        </div>
+        <div class="col-md-4">
+          <div class="card border-primary shadow-sm text-center">
+            <div class="card-body py-4">
+              <h3 class="text-primary fw-bold" id="risk_level">-</h3>
+              <p class="mb-1">2026 风险等级</p>
+              <small class="text-muted">FSI ≥ 0.85 的月份占比</small>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+const presetMap = {
+  baseline:   { ppi_shift: 0,   cpi_shift: 0,   rate_delta: 0,    fx_depr: 0,  iov_shift: 0 },
+  reflation:  { ppi_shift: 1.5, cpi_shift: 0.3, rate_delta: -0.2, fx_depr: 3,  iov_shift: 0.5 },
+  deflation:  { ppi_shift: -2,  cpi_shift: -0.4,rate_delta: -0.5, fx_depr: 1,  iov_shift: -0.6 },
+  stagflation:{ ppi_shift: 2.5, cpi_shift: 0.8, rate_delta: 0.2,  fx_depr: 8,  iov_shift: -0.5 }
+};
+
+function syncSlider(id) {
+  const input = document.getElementById(id);
+  const label = document.getElementById(id + '_val');
+  input.oninput = e => label.textContent = e.target.value;
+  label.textContent = input.value;
+}
+['ppi_shift','cpi_shift','rate_delta','fx_depr','iov_shift'].forEach(syncSlider);
+
+function applyPreset(run = false) {
+  const p = presetMap[document.getElementById('preset').value];
+  if (!p) return;
+  Object.entries(p).forEach(([k,v]) => {
+    const input = document.getElementById(k);
+    input.value = v;
+    document.getElementById(k + '_val').textContent = v;
+  });
+  if (run) runPrediction();
+}
+document.getElementById('preset').onchange = () => applyPreset(true);
+
+function buildEventNotes(events = []) {
+  return events.map(evt => (evt && evt !== '无特定事件') ? `<br>事件：${evt}` : '');
+}
+
+function buildLayout(title, dates=[]) {
+  const x0 = dates.length ? dates[0] : '2015-01';
+  const x1 = dates.length ? dates[dates.length - 1] : '2026-12';
+  const zones = [
+    {x0: '2015-06-01', x1: '2015-09-01', label: '2015股灾时期', color: 'rgba(255,0,0,0.2)'},
+    {x0: '2020-02-01', x1: '2020-06-01', label: 'COVID-19冲击时期', color: 'rgba(0,0,255,0.2)'},
+    {x0: '2022-01-01', x1: '2025-06-01', label: '房地产与债务危机时期', color: 'rgba(255,165,0,0.2)'},
+    {x0: '2025-01-01', x1: '2025-06-01', label: '2025上半年小牛市', color: 'rgba(0,255,0,0.2)'}
+  ];
+  const thresholdShapes = [
+    {type: 'line', x0, x1, y0: 0.85, y1: 0.85, line: {color: '#f0ad4e', dash: 'dot'}},
+    {type: 'line', x0, x1, y0: 1.3,  y1: 1.3,  line: {color: '#dc3545', dash: 'dash'}}
+  ];
+  const thresholdAnnotations = [
+    {x: x1, y: 0.85, xanchor: 'right', text: '预警线 0.85', showarrow: false, font: {color: '#f0ad4e', size: 12}},
+    {x: x1, y: 1.3,  xanchor: 'right', text: '高风险线 1.30', showarrow: false, font: {color: '#dc3545', size: 12}}
+  ];
+  return {
+    title: { text: title, font: {size: 16} },
+    xaxis: {title: ''},
+    yaxis: {title: '金融压力指数（FSI）'},
+    hovermode: 'x unified',
+    margin: {t:60, l:60, r:150, b:50},
+    legend: {orientation: 'v', x: 1.05, y: 1, bgcolor: 'rgba(255,255,255,0.85)'},
+    shapes: thresholdShapes.concat(zones.map(zone => ({
+      type: 'rect', xref: 'x', yref: 'paper',
+      x0: zone.x0, x1: zone.x1, y0: 0, y1: 1,
+      fillcolor: zone.color, opacity: 0.25, line: {width: 0}
+    }))),
+    annotations: thresholdAnnotations.concat(zones.map(zone => ({
+      x: zone.x0, y: 1.04, xref: 'x', yref: 'paper',
+      text: zone.label, showarrow: false, font: {size: 12, color: '#555'}
+    })))
+  };
+}
+
+function formatValue(val) {
+  return (val || val === 0) ? Number(val).toFixed(3) : '-';
+}
+
+async function runPrediction() {
+  const panel = document.getElementById('control-panel');
+  const btn = document.getElementById('run-btn');
+  panel.classList.add('loading');
+  btn.innerHTML = '<i class="bi bi-hourglass-split"></i> 模型预测中...';
+
+  const payload = {
+    hist_start: document.getElementById('hist_start').value,
+    short_end:  document.getElementById('short_end').value,
+    long_end:   document.getElementById('long_end').value,
+    ppi_shift:  parseFloat(document.getElementById('ppi_shift').value),
+    cpi_shift:  parseFloat(document.getElementById('cpi_shift').value),
+    rate_delta: parseFloat(document.getElementById('rate_delta').value),
+    fx_depr:    parseFloat(document.getElementById('fx_depr').value),
+    iov_shift:  parseFloat(document.getElementById('iov_shift').value),
+    preset:     document.getElementById('preset').value
+  };
+
+  try {
+    const res = await fetch('/api/ppi/predict', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || '预测失败');
+
+    const traces = [];
+    if (Array.isArray(data.dates_hist_actual_full) && data.dates_hist_actual_full.length) {
+      traces.push({
+        x: data.dates_hist_actual_full,
+        y: data.fsi_hist_actual_full,
+        name: '历史实测',
+        mode: 'lines',
+        line: {color: '#4e79a7', width: 2},
+        customdata: buildEventNotes(data.hist_news_full),
+        hovertemplate: '日期: %{x}<br>FSI: %{y:.3f}%{customdata}<extra></extra>'
+      });
+      if (Array.isArray(data.fsi_hist_smooth_full) && data.fsi_hist_smooth_full.length) {
+        traces.push({
+          x: data.dates_hist_actual_full,
+          y: data.fsi_hist_smooth_full,
+          name: '历史平滑',
+          line: {color: '#00bcd4', width: 2},
+          hovertemplate: '日期: %{x}<br>平滑FSI: %{y:.3f}<extra></extra>'
+        });
+      }
+    }
+    if (Array.isArray(data.dates_hist) && data.dates_hist.length) {
+      traces.push({ x: data.dates_hist, y: data.fsi_hist, name: '历史预测', line: {color: '#8e44ad', width: 2, dash: 'dot'} });
+    }
+    if (Array.isArray(data.dates_short) && data.dates_short.length) {
+      traces.push({ x: data.dates_short, y: data.fsi_short, name: '短期预测', line: {color: '#ff8c1a', width: 3} });
+    }
+    if (Array.isArray(data.dates_long) && data.dates_long.length) {
+      traces.push({ x: data.dates_long, y: data.fsi_long, name: '长期预测', line: {color: '#dc143c', width: 3} });
+    }
+    const combinedDates = [
+      ...(data.dates_hist_actual_full || []),
+      ...(data.dates_hist || []),
+      ...(data.dates_short || []),
+      ...(data.dates_long || [])
+    ];
+    Plotly.newPlot('ppi_chart', traces, buildLayout(`FSI 路径 — ${data.scenario_label}`, combinedDates));
+
+    document.getElementById('short_fsi').textContent = formatValue(data.short_peak);
+    document.getElementById('short_date').textContent = data.short_peak_date || '-';
+    document.getElementById('long_fsi').textContent = formatValue(data.long_peak);
+    document.getElementById('long_date').textContent = data.long_peak_date || '-';
+    document.getElementById('risk_level').textContent = data.risk_level || (typeof data.risk_prob === 'number' ? `${data.risk_prob}%` : '-');
+    document.getElementById('scenario_tag').textContent = data.scenario_label || '-';
+
+    btn.innerHTML = '<i class="bi bi-check2-all"></i> 预测完成';
+  } catch (err) {
+    console.error(err);
+    alert(err.message || '预测接口异常');
+    btn.innerHTML = '预测失败';
+  } finally {
+    panel.classList.remove('loading');
+  }
+}
+
+window.onload = () => applyPreset(true);
+document.getElementById('run-btn').onclick = runPrediction;
+</script>
+</body>
+</html>

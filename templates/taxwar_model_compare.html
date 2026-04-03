@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TaxWar 多模型对比看板</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+  <style>
+    body { background: #f7f8fa; font-family: "Microsoft YaHei", sans-serif; }
+    .card { border: none; border-radius: 14px; box-shadow: 0 4px 16px rgba(0,0,0,0.08); }
+    .title { font-weight: 700; color: #b71c1c; }
+    .muted { color: #6c757d; font-size: 13px; }
+    .table-wrap { max-height: 420px; overflow: auto; }
+    .loading { opacity: 0.6; pointer-events: none; }
+  </style>
+</head>
+<body class="pb-4">
+<div class="container-fluid px-4 py-4">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+      <h3 class="title mb-1">TaxWar 场景下模型误差对比</h3>
+      <div class="muted">对比维度：历史对原始FSI的 MSE/MAE + 未来对基准情景偏离度</div>
+    </div>
+    <div class="d-flex gap-2">
+      <a href="/benchmark/events" class="btn btn-outline-danger">历史事件 Benchmark</a>
+      <a href="/taxwar" class="btn btn-outline-secondary">返回压力测试页</a>
+    </div>
+  </div>
+
+  <div class="card mb-3">
+    <div class="card-body" id="control-panel">
+      <div class="row g-3 align-items-end">
+        <div class="col-md-2">
+          <label class="form-label">历史起点</label>
+          <input id="hist_start" type="month" class="form-control" value="2018-01">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">短期终点</label>
+          <input id="short_end" type="month" class="form-control" value="2025-12">
+        </div>
+        <div class="col-md-2">
+          <label class="form-label">长期终点</label>
+          <input id="long_end" type="month" class="form-control" value="2026-12">
+        </div>
+        <div class="col-md-4">
+          <label class="form-label">场景</label>
+          <div class="d-flex flex-wrap gap-3">
+            <label><input type="checkbox" class="scenario" value="baseline" checked> 基准</label>
+            <label><input type="checkbox" class="scenario" value="moderate" checked> 中等</label>
+            <label><input type="checkbox" class="scenario" value="severe" checked> 严重</label>
+            <label><input type="checkbox" class="scenario" value="extreme" checked> 极端</label>
+          </div>
+        </div>
+        <div class="col-md-2 text-end">
+          <button id="run-btn" class="btn btn-danger w-100">运行对比</button>
+        </div>
+      </div>
+      <div id="error-box" class="text-danger mt-2" style="display:none;"></div>
+      <div id="warn-box" class="text-warning mt-1" style="display:none;"></div>
+    </div>
+  </div>
+
+  <div class="card mb-3">
+    <div class="card-body">
+      <h5 class="mb-3">指标表格</h5>
+      <div class="table-wrap">
+        <table class="table table-striped table-sm align-middle" id="metrics-table">
+          <thead class="table-light">
+            <tr>
+              <th>场景</th>
+              <th>模型</th>
+              <th>历史 MSE vs FSI</th>
+              <th>历史 MAE vs FSI</th>
+              <th>未来 MAE vs 基准</th>
+              <th>短期峰值</th>
+              <th>长期峰值</th>
+              <th>2026 风险等级</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="row g-3">
+    <div class="col-lg-6">
+      <div class="card">
+        <div class="card-body">
+          <h6>历史 MSE 对比</h6>
+          <div id="mse_chart" style="height:320px;"></div>
+        </div>
+      </div>
+    </div>
+    <div class="col-lg-6">
+      <div class="card">
+        <div class="card-body">
+          <h6>历史 MAE 对比</h6>
+          <div id="mae_chart" style="height:320px;"></div>
+        </div>
+      </div>
+    </div>
+    <div class="col-12">
+      <div class="card">
+        <div class="card-body">
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <h6 class="mb-0">与原始 FSI 路径对比</h6>
+            <select id="scenario_select" class="form-select form-select-sm" style="max-width:280px;"></select>
+          </div>
+          <div id="path_chart" style="height:450px;"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const scenarioLabels = {
+  baseline: '基准情景（关税维持现状）',
+  moderate: '中等冲击（+25%关税）',
+  severe: '严重冲击（+60%关税）',
+  extreme: '极端冲击（+科技封锁）'
+};
+let latestData = null;
+
+function fmt(num, d = 4) {
+  if (num === null || num === undefined || Number.isNaN(Number(num))) return '-';
+  return Number(num).toFixed(d);
+}
+
+function displayModelLabel(model) {
+  if (model === 'ragformer') return 'MASTER';
+  if (model === 'master') return 'RAGFORMER';
+  return String(model || '').toUpperCase();
+}
+
+function getSelectedScenarios() {
+  return Array.from(document.querySelectorAll('.scenario:checked')).map(el => el.value);
+}
+
+function showError(msg = '') {
+  const box = document.getElementById('error-box');
+  box.style.display = msg ? 'block' : 'none';
+  box.textContent = msg || '';
+}
+
+function showWarn(msg = '') {
+  const box = document.getElementById('warn-box');
+  box.style.display = msg ? 'block' : 'none';
+  box.textContent = msg || '';
+}
+
+function renderTable(rows) {
+  const tbody = document.querySelector('#metrics-table tbody');
+  tbody.innerHTML = '';
+  rows.forEach(item => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${item.scenario_label || item.scenario}</td>
+      <td>${displayModelLabel(item.model)}</td>
+      <td>${fmt(item.hist_mse_vs_fsi, 6)}</td>
+      <td>${fmt(item.hist_mae_vs_fsi, 6)}</td>
+      <td>${fmt(item.future_mae_vs_baseline, 6)}</td>
+      <td>${fmt(item.short_peak, 3)} (${item.short_peak_date || '-'})</td>
+      <td>${fmt(item.long_peak, 3)} (${item.long_peak_date || '-'})</td>
+      <td>${item.risk_level || '-'}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+function renderMetricChart(rows, metricKey, targetId, title) {
+  const scenarioOrder = [...new Set(rows.map(r => r.scenario))];
+  const modelOrder = [...new Set(rows.map(r => r.model))];
+  const modelDisplayOrder = modelOrder.map(displayModelLabel);
+
+  const traces = scenarioOrder.map(s => {
+    const rowMap = {};
+    rows.filter(r => r.scenario === s).forEach(r => { rowMap[r.model] = r; });
+    return {
+      x: modelDisplayOrder,
+      y: modelOrder.map(m => (rowMap[m] && rowMap[m][metricKey] !== null) ? rowMap[m][metricKey] : null),
+      type: 'bar',
+      name: scenarioLabels[s] || s
+    };
+  });
+
+  Plotly.newPlot(targetId, traces, {
+    barmode: 'group',
+    title: {text: title, font: {size: 14}},
+    margin: {l: 50, r: 20, t: 45, b: 45},
+    yaxis: {title: metricKey.includes('mse') ? 'MSE' : 'MAE'},
+    xaxis: {title: '模型'}
+  }, {responsive: true});
+}
+
+function renderScenarioSelect(scenarios) {
+  const select = document.getElementById('scenario_select');
+  select.innerHTML = scenarios.map(s => `<option value="${s}">${scenarioLabels[s] || s}</option>`).join('');
+}
+
+function renderPathChartForScenario(scenario) {
+  if (!latestData) return;
+  const traces = [];
+  const actual = latestData.fsi_actual || [];
+  if (actual.length) {
+    traces.push({
+      x: actual.map(d => d.date),
+      y: actual.map(d => d.fsi),
+      mode: 'lines',
+      name: '原始FSI(历史)',
+      line: {color: '#1f77b4', width: 3}
+    });
+  }
+
+  const modelPaths = (latestData.paths && latestData.paths[scenario]) || {};
+  Object.keys(modelPaths).forEach((model, idx) => {
+    const item = modelPaths[model];
+    const x = [...(item.dates_hist || []), ...(item.dates_short || []), ...(item.dates_long || [])];
+    const y = [...(item.fsi_hist || []), ...(item.fsi_short || []), ...(item.fsi_long || [])];
+    const palette = ['#d62728', '#2ca02c', '#9467bd', '#ff7f0e', '#17becf', '#7f7f7f'];
+    traces.push({
+      x, y, mode: 'lines',
+      name: displayModelLabel(model),
+      line: {width: 2, color: palette[idx % palette.length], dash: idx % 2 ? 'dot' : 'solid'}
+    });
+  });
+
+  Plotly.newPlot('path_chart', traces, {
+    title: {text: `场景路径对比：${scenarioLabels[scenario] || scenario}`, font: {size: 14}},
+    margin: {l: 55, r: 20, t: 45, b: 40},
+    xaxis: {title: '日期'},
+    yaxis: {title: 'FSI'},
+    hovermode: 'x unified',
+    shapes: [{
+      type: 'line',
+      x0: '2025-06',
+      x1: '2025-06',
+      y0: 0,
+      y1: 1,
+      yref: 'paper',
+      line: {color: '#999', dash: 'dash'}
+    }]
+  }, {responsive: true});
+}
+
+async function runCompare() {
+  showError('');
+  showWarn('');
+  const panel = document.getElementById('control-panel');
+  const btn = document.getElementById('run-btn');
+  panel.classList.add('loading');
+  btn.disabled = true;
+  btn.textContent = '计算中...';
+
+  const payload = {
+    hist_start: document.getElementById('hist_start').value,
+    short_end: document.getElementById('short_end').value,
+    long_end: document.getElementById('long_end').value,
+    scenarios: getSelectedScenarios()
+  };
+
+  try {
+    const res = await fetch('/api/taxwar/model-compare', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || '接口失败');
+    latestData = data;
+
+    renderTable(data.metrics || []);
+    renderMetricChart(data.metrics || [], 'hist_mse_vs_fsi', 'mse_chart', '历史 MSE（越低越好）');
+    renderMetricChart(data.metrics || [], 'hist_mae_vs_fsi', 'mae_chart', '历史 MAE（越低越好）');
+
+    const scenarios = data.scenarios || [];
+    renderScenarioSelect(scenarios);
+    const select = document.getElementById('scenario_select');
+    if (scenarios.length) {
+      select.value = scenarios.includes('extreme') ? 'extreme' : scenarios[0];
+      renderPathChartForScenario(select.value);
+    }
+
+    if (Array.isArray(data.errors) && data.errors.length) {
+      const msg = data.errors.map(e => `${e.model}-${e.scenario}: ${e.error}`).join(' | ');
+      showWarn(`部分模型计算失败：${msg}`);
+    }
+  } catch (err) {
+    showError(err.message || '计算失败');
+  } finally {
+    panel.classList.remove('loading');
+    btn.disabled = false;
+    btn.textContent = '运行对比';
+  }
+}
+
+document.getElementById('run-btn').addEventListener('click', runCompare);
+document.getElementById('scenario_select').addEventListener('change', (e) => renderPathChartForScenario(e.target.value));
+window.onload = runCompare;
+</script>
+</body>
+</html>

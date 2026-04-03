@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>中国宏观金融风险压力测试系统（2025-2026）</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+  <style>
+    body { background: #f6f7f9; font-family: "Microsoft YaHei", sans-serif; color: #2f3540; }
+    .result-card { border: none; border-radius: 14px; box-shadow: 0 8px 24px rgba(16, 24, 40, 0.08); overflow: hidden; }
+    .control-shell { background: #f2f4f7; border: 1px solid #d7dce4; border-radius: 12px; padding: 20px 24px 10px; }
+    .control-caption { color: #c7c7c7; font-size: 20px; font-weight: 700; margin-bottom: 8px; }
+    .section-block { border-top: 1px solid #d8dee8; padding-top: 16px; margin-top: 16px; }
+    .section-title { display: flex; align-items: center; justify-content: space-between; font-size: 20px; font-weight: 600; margin-bottom: 12px; }
+    .section-title .name { display: inline-flex; align-items: center; }
+    .section-title .name::before { content: ''; display: inline-block; width: 8px; height: 42px; background: #4d8fe8; margin-right: 12px; border-radius: 2px; }
+    .preset-grid { display: flex; flex-wrap: wrap; gap: 10px; }
+    .preset-btn { border: 1px solid #c8ced8; background: #f4f5f7; color: #4e5561; border-radius: 10px; padding: 10px 16px; font-size: 20px; }
+    .preset-btn.active { background: #e8f1ff; border-color: #4d8fe8; color: #2e6fc7; font-weight: 700; }
+    .input-label { color: #666d78; font-size: 16px; font-weight: 600; margin-bottom: 8px; }
+    .date-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 8px; }
+    .form-control, .form-select { border-radius: 8px; }
+    .shock-flex { display: flex; flex-wrap: wrap; gap: 12px; }
+    .shock-item { flex: 1 1 calc(33.333% - 8px); min-width: 220px; background: #f7f9fc; border: 1px solid #d6dde8; border-radius: 10px; padding: 10px 12px; }
+    .shock-item .name { font-size: 16px; color: #565d68; margin-bottom: 6px; }
+    .shock-item .value { font-size: 15px; color: #3a76cf; font-weight: 700; margin-top: 4px; text-align: right; }
+    .form-range::-webkit-slider-thumb { background: #4d8fe8; }
+    .form-range::-moz-range-thumb { background: #4d8fe8; }
+    .btn-taxwar { background: #c41d2a; border: none; color: #fff; font-weight: 700; }
+    .btn-taxwar:hover { background: #a81b26; color: #fff; }
+    .btn-macro { background: #0b7285; border: none; color: #fff; font-weight: 700; }
+    .btn-macro:hover { background: #0a5c6b; color: #fff; }
+    .badge-short { background: #ff8c1a; color: #fff; }
+    .badge-long { background: #dc143c; color: #fff; }
+    .loading { opacity: 0.65; pointer-events: none; }
+    .scenario-tab { font-size: 16px; color: #4f5662; }
+    .scenario-tab.active { font-weight: 700; color: #2f3540; }
+    @media (max-width: 992px) {
+      .date-grid { grid-template-columns: 1fr; }
+      .shock-item { flex: 1 1 100%; min-width: 0; }
+      .preset-btn { font-size: 16px; }
+    }
+  </style>
+</head>
+<body class="pb-5">
+<div class="container-fluid py-4 px-4 px-lg-5">
+  <h2 class="text-center fw-bold mb-2">中国宏观金融风险压力测试系统</h2>
+  <p class="text-center text-muted mb-3">合并场景页：贸易摩擦场景 / GDP+(PPI/CPI) 宏观场景</p>
+
+  <ul class="nav nav-tabs mb-4" id="scenario-tabs" role="tablist">
+    <li class="nav-item" role="presentation">
+      <button class="nav-link scenario-tab {% if active_tab != 'macroshock' %}active{% endif %}" id="tab-taxwar" data-bs-toggle="tab" data-bs-target="#pane-taxwar" type="button" role="tab" aria-controls="pane-taxwar" aria-selected="{% if active_tab != 'macroshock' %}true{% else %}false{% endif %}">贸易摩擦预设场景</button>
+    </li>
+    <li class="nav-item" role="presentation">
+      <button class="nav-link scenario-tab {% if active_tab == 'macroshock' %}active{% endif %}" id="tab-macro" data-bs-toggle="tab" data-bs-target="#pane-macro" type="button" role="tab" aria-controls="pane-macro" aria-selected="{% if active_tab == 'macroshock' %}true{% else %}false{% endif %}">GDP+(PPI/CPI) 宏观预设场景</button>
+    </li>
+  </ul>
+
+  <div class="tab-content">
+    <div class="tab-pane fade {% if active_tab != 'macroshock' %}show active{% endif %}" id="pane-taxwar" role="tabpanel" aria-labelledby="tab-taxwar" tabindex="0">
+      <p class="text-center text-muted mb-3">中美贸易摩擦升级场景 · 数据截至 2025.06</p>
+
+      <div class="row g-4">
+        <div class="col-12">
+          <div class="control-shell" id="tw-control-panel">
+            <div class="control-caption">预警日期</div>
+            <div class="date-grid">
+              <div>
+                <label class="input-label">历史起点</label>
+                <input type="month" class="form-control form-control-lg" id="tw-hist_start" value="2018-01">
+              </div>
+              <div>
+                <label class="input-label">短期终点</label>
+                <input type="month" class="form-control form-control-lg" id="tw-short_end" value="2025-12">
+              </div>
+              <div>
+                <label class="input-label">长期终点</label>
+                <input type="month" class="form-control form-control-lg" id="tw-long_end" value="2026-12">
+              </div>
+            </div>
+
+            <div class="section-block">
+              <div class="section-title">
+                <span class="name">预设场景</span>
+                <i class="bi bi-chevron-down text-muted small"></i>
+              </div>
+              <div class="preset-grid" id="tw-preset-grid">
+                <button type="button" class="preset-btn" data-preset="baseline">基准情景</button>
+                <button type="button" class="preset-btn" data-preset="moderate">中等冲击</button>
+                <button type="button" class="preset-btn active" data-preset="severe">严重冲击</button>
+                <button type="button" class="preset-btn" data-preset="extreme">极端冲击</button>
+              </div>
+            </div>
+
+            <div class="section-block">
+              <div class="section-title">
+                <span class="name">冲击参数</span>
+                <i class="bi bi-chevron-down text-muted small"></i>
+              </div>
+              <div class="shock-flex">
+                <div class="shock-item">
+                  <div class="name">关税幅度</div>
+                  <input type="range" class="form-range" id="tw-tariff" min="-100" max="100" value="60">
+                  <div class="value"><span id="tw-tariff_val">60</span>%</div>
+                </div>
+                <div class="shock-item">
+                  <div class="name">人民币贬值</div>
+                  <input type="range" class="form-range" id="tw-cny" min="-100" max="100" value="10">
+                  <div class="value"><span id="tw-cny_val">10</span>%</div>
+                </div>
+                <div class="shock-item">
+                  <div class="name">资本外流(亿$)</div>
+                  <input type="range" class="form-range" id="tw-outflow" min="0" max="3000" step="100" value="1500">
+                  <div class="value"><span id="tw-outflow_val">1500</span></div>
+                </div>
+              </div>
+            </div>
+
+            <button id="tw-run-btn" class="btn btn-taxwar btn-lg w-100 py-3 mt-3"><i class="bi bi-play-fill"></i> 运行压力测试</button>
+          </div>
+        </div>
+
+        <div class="col-12">
+          <div class="result-card card mb-4">
+            <div class="card-header bg-white d-flex justify-content-between align-items-center">
+              <h5 class="mb-0"><i class="bi bi-graph-up-arrow"></i> 金融压力指数（FSI）预测路径</h5>
+              <div>
+                <span class="badge bg-secondary">历史</span>
+                <span class="badge badge-short mx-2">短期至 <span id="tw-short_label">2025-12</span></span>
+                <span class="badge badge-long">长期至 <span id="tw-long_label">2026-12</span></span>
+              </div>
+            </div>
+            <div class="card-body p-3"><div id="tw-fsi_chart" style="height: 520px;"></div></div>
+          </div>
+
+          <div class="row g-3">
+            <div class="col-md-4"><div class="result-card card border-warning shadow-sm text-center"><div class="card-body py-4"><h3 class="text-warning fw-bold" id="tw-short_fsi">-</h3><p class="mb-1">短期峰值 FSI</p><small class="text-muted" id="tw-short_date">-</small></div></div></div>
+            <div class="col-md-4"><div class="result-card card border-danger shadow-sm text-center"><div class="card-body py-4"><h3 class="text-danger fw-bold" id="tw-long_fsi">-</h3><p class="mb-1">长期峰值 FSI</p><small class="text-muted" id="tw-long_date">-</small></div></div></div>
+            <div class="col-md-4"><div class="result-card card border-primary shadow-sm text-center"><div class="card-body py-4"><h3 class="text-primary fw-bold" id="tw-prob">-</h3><p class="mb-0">2026年系统性风险等级</p><small class="text-muted">FSI >= 0.85 日期数全年占比</small></div></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="tab-pane fade {% if active_tab == 'macroshock' %}show active{% endif %}" id="pane-macro" role="tabpanel" aria-labelledby="tab-macro" tabindex="0">
+      <p class="text-center text-muted mb-3">以 GDP、CPI、PPI 与中美关税联动冲击为核心场景 · 数据截至 2025.06</p>
+      <div class="row g-4">
+        <div class="col-12">
+          <div class="control-shell" id="ms-control-panel">
+            <div class="control-caption">预警日期</div>
+            <div class="date-grid">
+              <div>
+                <label class="input-label">历史起点</label>
+                <input type="month" class="form-control form-control-lg" id="ms-hist_start" value="2018-01">
+              </div>
+              <div>
+                <label class="input-label">短期终点</label>
+                <input type="month" class="form-control form-control-lg" id="ms-short_end" value="2025-12">
+              </div>
+              <div>
+                <label class="input-label">长期终点</label>
+                <input type="month" class="form-control form-control-lg" id="ms-long_end" value="2026-12">
+              </div>
+            </div>
+
+            <div class="section-block">
+              <div class="section-title">
+                <span class="name">预设场景</span>
+                <i class="bi bi-chevron-down text-muted small"></i>
+              </div>
+              <div class="preset-grid" id="ms-preset-grid">
+                <button type="button" class="preset-btn" data-preset="baseline">基准情景</button>
+                <button type="button" class="preset-btn" data-preset="growth_slowdown">增长放缓</button>
+                <button type="button" class="preset-btn" data-preset="reflation">温和再通胀</button>
+                <button type="button" class="preset-btn active" data-preset="stagflation">滞胀冲击</button>
+              </div>
+            </div>
+
+            <div class="section-block">
+              <div class="section-title">
+                <span class="name">宏观参数</span>
+                <i class="bi bi-chevron-down text-muted small"></i>
+              </div>
+              <div class="shock-flex">
+                <div class="shock-item">
+                  <div class="name">GDP变动</div>
+                  <input type="range" class="form-range" id="ms-gdp_shift" min="-10" max="10" step="0.1" value="-1.0">
+                  <div class="value"><span id="ms-gdp_shift_val">-1.0</span>%</div>
+                </div>
+                <div class="shock-item">
+                  <div class="name">PPI变动</div>
+                  <input type="range" class="form-range" id="ms-ppi_shift" min="-10" max="10" step="0.1" value="2.0">
+                  <div class="value"><span id="ms-ppi_shift_val">2.0</span>%</div>
+                </div>
+                <div class="shock-item">
+                  <div class="name">CPI变动</div>
+                  <input type="range" class="form-range" id="ms-cpi_shift" min="-10" max="10" step="0.1" value="1.0">
+                  <div class="value"><span id="ms-cpi_shift_val">1.0</span>%</div>
+                </div>
+                <div class="shock-item" style="display: none;">
+                  <div class="name">中美关税变动</div>
+                  <input type="range" class="form-range" id="ms-tariff_shift" min="-20" max="20" step="0.1" value="5.0">
+                  <div class="value"><span id="ms-tariff_shift_val">5.0</span>%</div>
+                </div>
+              </div>
+            </div>
+
+            <button id="ms-run-btn" class="btn btn-macro btn-lg w-100 py-3 mt-3"><i class="bi bi-play-fill"></i> 运行压力测试</button>
+          </div>
+        </div>
+
+        <div class="col-12">
+          <div class="result-card card mb-4">
+            <div class="card-header bg-white d-flex justify-content-between align-items-center">
+              <h5 class="mb-0"><i class="bi bi-graph-up-arrow"></i> 金融压力指数（FSI）预测路径</h5>
+              <div>
+                <span class="badge bg-secondary">历史</span>
+                <span class="badge badge-short mx-2">短期至 <span id="ms-short_label">2025-12</span></span>
+                <span class="badge badge-long">长期至 <span id="ms-long_label">2026-12</span></span>
+              </div>
+            </div>
+            <div class="card-body p-3"><div id="ms-fsi_chart" style="height: 520px;"></div></div>
+          </div>
+
+          <div class="row g-3">
+            <div class="col-md-4"><div class="result-card card border-warning shadow-sm text-center"><div class="card-body py-4"><h3 class="text-warning fw-bold" id="ms-short_fsi">-</h3><p class="mb-1">短期峰值 FSI</p><small class="text-muted" id="ms-short_date">-</small></div></div></div>
+            <div class="col-md-4"><div class="result-card card border-danger shadow-sm text-center"><div class="card-body py-4"><h3 class="text-danger fw-bold" id="ms-long_fsi">-</h3><p class="mb-1">长期峰值 FSI</p><small class="text-muted" id="ms-long_date">-</small></div></div></div>
+            <div class="col-md-4"><div class="result-card card border-primary shadow-sm text-center"><div class="card-body py-4"><h3 class="text-primary fw-bold" id="ms-prob">-</h3><p class="mb-0">2026年系统性风险等级</p><small class="text-muted">FSI >= 0.85 日期数全年占比</small></div></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+const twState = { initialized: false, preset: 'severe', presetMap: {
+  baseline: { tariff: 10, cny: 3, outflow: 500 },
+  moderate: { tariff: 25, cny: 8, outflow: 1200 },
+  severe: { tariff: 60, cny: 10, outflow: 1500 },
+  extreme: { tariff: 100, cny: 25, outflow: 2800 }
+}};
+
+const msState = { initialized: false, preset: 'stagflation', presetMap: {
+  baseline: { gdp_shift: 0.0, ppi_shift: 0.0, cpi_shift: 0.0, tariff_shift: 0.0 },
+  growth_slowdown: { gdp_shift: -1.2, ppi_shift: -1.6, cpi_shift: -0.5, tariff_shift: 3.0 },
+  reflation: { gdp_shift: 0.6, ppi_shift: 1.2, cpi_shift: 0.4, tariff_shift: -2.0 },
+  stagflation: { gdp_shift: -1.0, ppi_shift: 2.0, cpi_shift: 0.9, tariff_shift: 5.0 }
+}};
+
+function eventNotes(events = []) {
+  return events.map(evt => (evt && evt !== '无特定事件') ? `<br>事件：${evt}` : '');
+}
+
+function formatValue(v) { return (v || v === 0) ? Number(v).toFixed(2) : '-'; }
+
+function buildLayout(title, dates = []) {
+  const x0 = dates.length ? dates[0] : '2015-01';
+  const x1 = dates.length ? dates[dates.length - 1] : '2026-12';
+  const zones = [
+    {x0: '2015-06-01', x1: '2015-09-01', label: '2015股灾时期', color: 'rgba(255,0,0,0.2)'},
+    {x0: '2020-02-01', x1: '2020-06-01', label: 'COVID-19冲击时期', color: 'rgba(0,0,255,0.2)'},
+    {x0: '2022-01-01', x1: '2025-06-01', label: '房地产与债务危机时期', color: 'rgba(255,165,0,0.2)'},
+    {x0: '2025-01-01', x1: '2025-06-01', label: '2025上半年小牛市', color: 'rgba(0,255,0,0.2)'}
+  ];
+  return {
+    title: { text: title, font: {size: 16} },
+    xaxis: { title: '' },
+    yaxis: { title: '金融压力指数（FSI）' },
+    hovermode: 'x unified',
+    margin: { t: 60, l: 60, r: 40, b: 50 },
+    shapes: [
+      {type:'line', x0, x1, y0:0.85, y1:0.85, line:{color:'#f0ad4e', dash:'dot'}},
+      {type:'line', x0, x1, y0:1.3,  y1:1.3,  line:{color:'#dc3545', dash:'dash'}},
+      ...zones.map(zone => ({ type:'rect', xref:'x', yref:'paper', x0:zone.x0, x1:zone.x1, y0:0, y1:1, fillcolor:zone.color, opacity:0.25, line:{width:0} }))
+    ],
+    annotations: [
+      {x: x1, y: 0.85, xanchor:'right', text: '预警线 0.85', showarrow:false, font:{color:'#f0ad4e', size:12}},
+      {x: x1, y: 1.3, xanchor:'right', text: '高风险线 1.30', showarrow:false, font:{color:'#dc3545', size:12}},
+      ...zones.map(zone => ({ x: zone.x0, y: 1.04, xref:'x', yref:'paper', text: zone.label, showarrow:false, font:{size:12, color:'#555'} }))
+    ]
+  };
+}
+
+function setActivePreset(containerId, preset) {
+  document.querySelectorAll(`#${containerId} .preset-btn`).forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.preset === preset);
+  });
+}
+
+function bindRange(id, onChange) {
+  const input = document.getElementById(id);
+  const val = document.getElementById(`${id}_val`);
+  input.oninput = e => {
+    val.textContent = e.target.value;
+    if (typeof onChange === 'function') onChange(e.target.value);
+  };
+  val.textContent = input.value;
+}
+
+function setMsCustomPreset() {
+  msState.preset = 'custom';
+  setActivePreset('ms-preset-grid', '__custom__');
+}
+
+function setTwCustomPreset() {
+  twState.preset = 'custom';
+  setActivePreset('tw-preset-grid', '__custom__');
+}
+
+function syncTwLabels() {
+  document.getElementById('tw-short_label').textContent = document.getElementById('tw-short_end').value;
+  document.getElementById('tw-long_label').textContent = document.getElementById('tw-long_end').value;
+}
+
+function applyTwPreset(run = false) {
+  const p = twState.presetMap[twState.preset];
+  document.getElementById('tw-tariff').value = p.tariff;
+  document.getElementById('tw-cny').value = p.cny;
+  document.getElementById('tw-outflow').value = p.outflow;
+  document.getElementById('tw-tariff_val').textContent = p.tariff;
+  document.getElementById('tw-cny_val').textContent = p.cny;
+  document.getElementById('tw-outflow_val').textContent = p.outflow;
+  setActivePreset('tw-preset-grid', twState.preset);
+  if (run) runTwPrediction();
+}
+
+async function runTwPrediction() {
+  const panel = document.getElementById('tw-control-panel');
+  const btn = document.getElementById('tw-run-btn');
+  panel.classList.add('loading');
+  btn.innerHTML = '<i class="bi bi-hourglass-split"></i> 模型预测中...';
+
+  const payload = {
+    hist_start: document.getElementById('tw-hist_start').value,
+    short_end: document.getElementById('tw-short_end').value,
+    long_end: document.getElementById('tw-long_end').value,
+    tariff: parseInt(document.getElementById('tw-tariff').value, 10),
+    cny_depr: parseInt(document.getElementById('tw-cny').value, 10),
+    outflow: parseInt(document.getElementById('tw-outflow').value, 10),
+    preset: twState.preset === 'custom' ? null : twState.preset
+  };
+
+  try {
+    const res = await fetch('/api/predict', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || '预测接口异常');
+
+    const traces = [];
+    if (Array.isArray(data.dates_hist_actual_full) && data.dates_hist_actual_full.length) {
+      traces.push({ x:data.dates_hist_actual_full, y:data.fsi_hist_actual_full, name:'历史实测', mode:'lines', line:{color:'#4e79a7', width:2}, customdata:eventNotes(data.hist_news_full), hovertemplate:'日期: %{x}<br>FSI: %{y:.2f}%{customdata}<extra></extra>' });
+      if (Array.isArray(data.fsi_hist_smooth_full) && data.fsi_hist_smooth_full.length) {
+        traces.push({ x:data.dates_hist_actual_full, y:data.fsi_hist_smooth_full, name:'历史平滑', line:{color:'#00bcd4', width:2}, hovertemplate:'日期: %{x}<br>FSI平滑: %{y:.2f}<extra></extra>' });
+      }
+    }
+    if (Array.isArray(data.dates_hist) && data.dates_hist.length) traces.push({ x:data.dates_hist, y:data.fsi_hist, name:'历史预测(MASTER)', line:{color:'#8e44ad', width:2, dash:'dot'} });
+    if (Array.isArray(data.dates_short) && data.dates_short.length) traces.push({ x:data.dates_short, y:data.fsi_short, name:'短期预测', line:{color:'#ff8c1a', width:3} });
+    if (Array.isArray(data.dates_long) && data.dates_long.length) traces.push({ x:data.dates_long, y:data.fsi_long, name:'长期预测', line:{color:'#dc143c', width:3} });
+
+    const combinedDates = [...(data.dates_hist_actual_full || []), ...(data.dates_hist || []), ...(data.dates_short || []), ...(data.dates_long || [])];
+    Plotly.newPlot('tw-fsi_chart', traces, buildLayout(`FSI 路径 — ${data.scenario_label}`, combinedDates));
+
+    document.getElementById('tw-short_fsi').textContent = formatValue(data.short_peak);
+    document.getElementById('tw-short_date').textContent = data.short_peak_date || '-';
+    document.getElementById('tw-long_fsi').textContent = formatValue(data.long_peak);
+    document.getElementById('tw-long_date').textContent = data.long_peak_date || '-';
+    document.getElementById('tw-prob').textContent = data.risk_level || (typeof data.risk_prob === 'number' ? `${data.risk_prob}%` : '-');
+
+    btn.innerHTML = '<i class="bi bi-check2-all"></i> 预测完成';
+  } catch (err) {
+    alert(err.message || '预测失败');
+    btn.textContent = '预测失败';
+  } finally {
+    panel.classList.remove('loading');
+  }
+}
+
+function initTw() {
+  if (twState.initialized) return;
+  twState.initialized = true;
+  ['tw-tariff', 'tw-cny', 'tw-outflow'].forEach(id => bindRange(id, setTwCustomPreset));
+  ['tw-short_end', 'tw-long_end'].forEach(id => document.getElementById(id).onchange = syncTwLabels);
+  syncTwLabels();
+
+  document.querySelectorAll('#tw-preset-grid .preset-btn').forEach(btn => {
+    btn.addEventListener('click', () => { twState.preset = btn.dataset.preset; applyTwPreset(true); });
+  });
+
+  document.getElementById('tw-run-btn').onclick = runTwPrediction;
+  applyTwPreset(true);
+}
+
+function syncMsLabels() {
+  document.getElementById('ms-short_label').textContent = document.getElementById('ms-short_end').value;
+  document.getElementById('ms-long_label').textContent = document.getElementById('ms-long_end').value;
+}
+
+function applyMsPreset(run = false) {
+  const p = msState.presetMap[msState.preset];
+  document.getElementById('ms-gdp_shift').value = p.gdp_shift;
+  document.getElementById('ms-ppi_shift').value = p.ppi_shift;
+  document.getElementById('ms-cpi_shift').value = p.cpi_shift;
+  document.getElementById('ms-tariff_shift').value = p.tariff_shift;
+  document.getElementById('ms-gdp_shift_val').textContent = p.gdp_shift;
+  document.getElementById('ms-ppi_shift_val').textContent = p.ppi_shift;
+  document.getElementById('ms-cpi_shift_val').textContent = p.cpi_shift;
+  document.getElementById('ms-tariff_shift_val').textContent = p.tariff_shift;
+  setActivePreset('ms-preset-grid', msState.preset);
+  if (run) runMsPrediction();
+}
+
+async function runMsPrediction() {
+  const panel = document.getElementById('ms-control-panel');
+  const btn = document.getElementById('ms-run-btn');
+  panel.classList.add('loading');
+  btn.innerHTML = '<i class="bi bi-hourglass-split"></i> 模型预测中...';
+
+  const payload = {
+    hist_start: document.getElementById('ms-hist_start').value,
+    short_end: document.getElementById('ms-short_end').value,
+    long_end: document.getElementById('ms-long_end').value,
+    gdp_shift: parseFloat(document.getElementById('ms-gdp_shift').value),
+    ppi_shift: parseFloat(document.getElementById('ms-ppi_shift').value),
+    cpi_shift: parseFloat(document.getElementById('ms-cpi_shift').value),
+    tariff_shift: parseFloat(document.getElementById('ms-tariff_shift').value),
+    preset: msState.preset === 'custom' ? null : msState.preset
+  };
+
+  try {
+    const res = await fetch('/api/macroshock/predict', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || '预测接口异常');
+
+    const traces = [];
+    if (Array.isArray(data.dates_hist_actual_full) && data.dates_hist_actual_full.length) {
+      traces.push({ x:data.dates_hist_actual_full, y:data.fsi_hist_actual_full, name:'历史实测', mode:'lines', line:{color:'#4e79a7', width:2}, customdata:eventNotes(data.hist_news_full), hovertemplate:'日期: %{x}<br>FSI: %{y:.2f}%{customdata}<extra></extra>' });
+      if (Array.isArray(data.fsi_hist_smooth_full) && data.fsi_hist_smooth_full.length) {
+        traces.push({ x:data.dates_hist_actual_full, y:data.fsi_hist_smooth_full, name:'历史平滑', line:{color:'#00bcd4', width:2}, hovertemplate:'日期: %{x}<br>FSI平滑: %{y:.2f}<extra></extra>' });
+      }
+    }
+    if (Array.isArray(data.dates_hist) && data.dates_hist.length) traces.push({ x:data.dates_hist, y:data.fsi_hist, name:'历史预测', line:{color:'#8e44ad', width:2, dash:'dot'} });
+    if (Array.isArray(data.dates_short) && data.dates_short.length) traces.push({ x:data.dates_short, y:data.fsi_short, name:'短期预测', line:{color:'#ff8c1a', width:3} });
+    if (Array.isArray(data.dates_long) && data.dates_long.length) traces.push({ x:data.dates_long, y:data.fsi_long, name:'长期预测', line:{color:'#dc143c', width:3} });
+
+    const combinedDates = [...(data.dates_hist_actual_full || []), ...(data.dates_hist || []), ...(data.dates_short || []), ...(data.dates_long || [])];
+    Plotly.newPlot('ms-fsi_chart', traces, buildLayout(`FSI 路径 — ${data.scenario_label}`, combinedDates));
+
+    document.getElementById('ms-short_fsi').textContent = formatValue(data.short_peak);
+    document.getElementById('ms-short_date').textContent = data.short_peak_date || '-';
+    document.getElementById('ms-long_fsi').textContent = formatValue(data.long_peak);
+    document.getElementById('ms-long_date').textContent = data.long_peak_date || '-';
+    document.getElementById('ms-prob').textContent = data.risk_level || (typeof data.risk_prob === 'number' ? `${data.risk_prob}%` : '-');
+
+    btn.innerHTML = '<i class="bi bi-check2-all"></i> 预测完成';
+  } catch (err) {
+    alert(err.message || '预测失败');
+    btn.textContent = '预测失败';
+  } finally {
+    panel.classList.remove('loading');
+  }
+}
+
+function initMs() {
+  if (msState.initialized) return;
+  msState.initialized = true;
+  ['ms-gdp_shift', 'ms-ppi_shift', 'ms-cpi_shift', 'ms-tariff_shift'].forEach(id => bindRange(id, setMsCustomPreset));
+  ['ms-short_end', 'ms-long_end'].forEach(id => document.getElementById(id).onchange = syncMsLabels);
+  syncMsLabels();
+
+  document.querySelectorAll('#ms-preset-grid .preset-btn').forEach(btn => {
+    btn.addEventListener('click', () => { msState.preset = btn.dataset.preset; applyMsPreset(true); });
+  });
+
+  document.getElementById('ms-run-btn').onclick = runMsPrediction;
+  applyMsPreset(true);
+}
+
+function resizeChart(tabId) {
+  if (tabId === 'tab-taxwar') {
+    const el = document.getElementById('tw-fsi_chart');
+    if (el) Plotly.Plots.resize(el);
+  }
+  if (tabId === 'tab-macro') {
+    const el = document.getElementById('ms-fsi_chart');
+    if (el) Plotly.Plots.resize(el);
+  }
+}
+
+window.addEventListener('load', () => {
+  const initialTab = '{{ active_tab|default:"taxwar" }}';
+  if (initialTab === 'macroshock') initMs();
+  else initTw();
+
+  document.querySelectorAll('#scenario-tabs button[data-bs-toggle="tab"]').forEach(btn => {
+    btn.addEventListener('shown.bs.tab', e => {
+      const id = e.target.id;
+      if (id === 'tab-taxwar') initTw();
+      if (id === 'tab-macro') initMs();
+      resizeChart(id);
+    });
+  });
+});
+</script>
+</body>
+</html>
