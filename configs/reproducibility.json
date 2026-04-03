@@ -1,0 +1,91 @@
+{
+  "seed": {
+    "global_seed": 20250403,
+    "python_hash_seed": 20250403,
+    "numpy_seed": 20250403,
+    "torch_seed": 20250403,
+    "deterministic": true,
+    "benchmark": false
+  },
+  "splits": {
+    "policy": "time_series_chronological",
+    "dataset": "taxwar_index_plus_fsi",
+    "target": "FSI_Raw",
+    "date_column": "Date",
+    "history_window_months": 12,
+    "train": {
+      "start": "2015-01",
+      "end": "2022-12"
+    },
+    "validation": {
+      "start": "2023-01",
+      "end": "2024-06"
+    },
+    "test": {
+      "start": "2024-07",
+      "end": "2025-06"
+    }
+  },
+  "training": {
+    "loss": "mse",
+    "optimizer": "adam",
+    "learning_rate": 0.001,
+    "weight_decay": 0.0001,
+    "batch_size": 16,
+    "epochs": 200,
+    "patience": 20,
+    "gradient_clip_norm": 1.0
+  },
+  "models": {
+    "ragformer": {
+      "input_size": 16,
+      "seq_len": 12,
+      "d_model": 128,
+      "nhead": 8,
+      "num_layers": 4,
+      "k_neighbors": 7,
+      "dropout": 0.3,
+      "dim_feedforward": 512
+    },
+    "lstm": {
+      "input_size": 16,
+      "seq_len": 12,
+      "hidden_size": 64,
+      "num_layers": 2,
+      "dropout": 0.2,
+      "output_size": 1
+    },
+    "dtml": {
+      "input_size": 16,
+      "seq_len": 12,
+      "n_stock": 1,
+      "n_time": 12,
+      "n_heads": 4,
+      "d_lstm_input": 16,
+      "lstm_hidden_layer": 64,
+      "output_size": 1
+    },
+    "transformer": {
+      "input_size": 16,
+      "seq_len": 12,
+      "d_model": 64,
+      "nhead": 4,
+      "num_layers": 2,
+      "dropout": 0.2,
+      "dim_feedforward": 128
+    },
+    "master": {
+      "input_size": 16,
+      "seq_len": 12,
+      "d_model": 64,
+      "t_nhead": 4,
+      "s_nhead": 4,
+      "T_dropout_rate": 0.2,
+      "S_dropout_rate": 0.2,
+      "beta": 1.0,
+      "gate_input_start_index": 10,
+      "gate_input_end_index": 16,
+      "output_size": 1
+    }
+  }
+}
